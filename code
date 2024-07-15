@@ -1,0 +1,73 @@
+import simpy
+import geopandas as gpd
+from shapely.geometry import Point, Polygon
+from geopy.distance import geodesic
+import pandas as pd
+import matplotlib.pyplot as plt
+import folium
+
+# Define toll zones as polygons using geopandas and shapely
+toll_zones = {
+    "Zone 1": Polygon([(0, 0), (0, 1), (1, 1), (1, 0)]),
+    "Zone 2": Polygon([(1, 0), (1, 1), (2, 1), (2, 0)]),
+}
+
+# Convert toll zones to a GeoDataFrame
+toll_zones_gdf = gpd.GeoDataFrame({
+    "name": list(toll_zones.keys()),
+    "geometry": list(toll_zones.values())
+})
+
+# Define vehicle path with GPS coordinates
+vehicle_path = [
+    (0.5, 0.5), (1.5, 0.5), (1.5, 1.5), (0.5, 1.5)
+]
+
+# Initialize environment
+env = simpy.Environment()
+
+# Function to calculate distance within a zone
+def distance_within_zone(points, zone_polygon):
+    total_distance = 0.0
+    for i in range(len(points) - 1):
+        point1 = Point(points[i])
+        point2 = Point(points[i+1])
+        if zone_polygon.contains(point1) and zone_polygon.contains(point2):
+            total_distance += geodesic(points[i], points[i+1]).meters
+    return total_distance
+
+# Define the vehicle process
+def vehicle(env, vehicle_path, toll_zones):
+    total_charges = 0.0
+    for i in range(len(vehicle_path) - 1):
+        start_point = vehicle_path[i]
+        end_point = vehicle_path[i + 1]
+        yield env.timeout(1)  # Simulate time to move between points
+        
+        for zone_name, zone_polygon in toll_zones.items():
+            if zone_polygon.contains(Point(start_point)) or zone_polygon.contains(Point(end_point)):
+                distance = geodesic(start_point, end_point).meters
+                charge = distance * 0.05  # Example charge rate per meter
+                total_charges += charge
+                print(f"Vehicle moved from {start_point} to {end_point} through {zone_name}. Distance: {distance:.2f} m. Charge: ${charge:.2f}")
+
+    print(f"Total charges: ${total_charges:.2f}")
+
+# Run the simulation
+env.process(vehicle(env, vehicle_path, toll_zones))
+env.run()
+
+# Plot the toll zones and vehicle path using folium
+m = folium.Map(location=[1, 1], zoom_start=13)
+
+# Add toll zones to the map
+for zone_name, zone_polygon in toll_zones.items():
+    folium.GeoJson(zone_polygon, name=zone_name).add_to(m)
+
+# Add vehicle path to the map
+for i in range(len(vehicle_path) - 1):
+    folium.PolyLine([vehicle_path[i], vehicle_path[i + 1]], color="blue").add_to(m)
+
+# Save and display the map
+m.save("toll_zones_map.html")
+m
